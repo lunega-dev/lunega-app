@@ -1,0 +1,23 @@
+{
+  "name": "lunega-js",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "secrets",
+    "paths",
+    "app"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "tsc -b --clean",
+    "new": "node new-package.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

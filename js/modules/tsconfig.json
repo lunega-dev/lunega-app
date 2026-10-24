@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./secrets"
+    },
+    {
+      "path": "./paths"
+    },
+    {
+      "path": "./app"
+    }
+  ]
+}
