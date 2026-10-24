@@ -1,5 +1,5 @@
 {
-  "name": "@lunega-dev/app",
+  "name": "@lunega/app",
   "version": "0.0.1",
   "type": "module",
   "exports": {
@@ -18,12 +18,12 @@
     "prepublishOnly": "tsc -b"
   },
   "dependencies": {
-    "@lunega-dev/paths": "*",
+    "@lunega/paths": "*",
     "@hono/node-server": "^2.1.5",
     "sirv": "^3.0.2"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "bin": {
     "lunega-app": "./dist/cli.js"

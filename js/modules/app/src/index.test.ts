@@ -135,11 +135,11 @@ test('/__health', async () => {
 describe('secrets', () => {
   const handler = `export default { fetch(request, env) { return new Response(env.API_KEY ?? 'unset'); } };`;
 
-  test('loaded before the handler when the app has @lunega-dev/secrets', async () => {
+  test('loaded before the handler when the app has @lunega/secrets', async () => {
     const root = app({ 'package.json': pkg({ handler: 'server.js' }), 'server.js': handler, 'key': 's3cret\n' });
     const secrets = fileURLToPath(new URL('../../secrets', import.meta.url));
-    fs.mkdirSync(path.join(root, 'node_modules/@lunega-dev'), { recursive: true });
-    fs.symlinkSync(secrets, path.join(root, 'node_modules/@lunega-dev/secrets'));
+    fs.mkdirSync(path.join(root, 'node_modules/@lunega'), { recursive: true });
+    fs.symlinkSync(secrets, path.join(root, 'node_modules/@lunega/secrets'));
     process.env.API_KEY_FILE = path.join(root, 'key');
     try {
       const get = await serve(root);

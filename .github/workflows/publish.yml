@@ -1,5 +1,9 @@
-# Publishes every @lunega-dev/* package whose version isn't on GitHub Packages
-# yet. Bump a package's version to release it; everything else is skipped.
+# Publishes every @lunega/* package whose version isn't on npm yet. Bump a
+# package's version to release it; everything else is skipped.
+#
+# Auth is npm trusted publishing (GitHub OIDC), so there is no token: each
+# package lists lunega-dev/lunega-app + publish.yml as its trusted publisher on
+# npmjs.com. A brand-new package has to be published once by hand first.
 name: publish
 
 on:
@@ -12,7 +16,7 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  id-token: write
 
 concurrency:
   group: publish
@@ -31,16 +35,13 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          registry-url: https://npm.pkg.github.com
-          scope: '@lunega-dev'
+          registry-url: https://registry.npmjs.org
 
       - run: npm ci
       - run: npm run build
       - run: npm test
 
       - name: Publish new versions
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for dir in $(node -p "require('./package.json').workspaces.join(' ')"); do
             name=$(node -p "require('./$dir/package.json').name")

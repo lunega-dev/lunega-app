@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import { root as appRoot } from '@lunega-dev/paths';
+import { root as appRoot } from '@lunega/paths';
 import sirv from 'sirv';
 import { loadConfig } from './config.js';
 import { loadHandler, type Listener } from './handler.js';
@@ -21,7 +21,7 @@ export async function start({
   port = Number(process.env.PORT ?? 3000),
 }: StartOptions = {}): Promise<Server> {
   // Before the handler is imported, so it sees its secrets at import time.
-  const secrets = await importOptional<{ loadFileSecrets(): void }>(root, '@lunega-dev/secrets');
+  const secrets = await importOptional<{ loadFileSecrets(): void }>(root, '@lunega/secrets');
   secrets?.loadFileSecrets();
 
   const config = await loadConfig(root);

@@ -1,5 +1,5 @@
 {
-  "name": "@lunega-dev/paths",
+  "name": "@lunega/paths",
   "version": "0.0.1",
   "type": "module",
   "exports": {
@@ -19,7 +19,7 @@
   },
   "dependencies": {},
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "repository": {
     "type": "git",

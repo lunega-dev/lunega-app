@@ -21,7 +21,7 @@ const write = (file, content) => {
 };
 
 write('package.json', {
-  name: `@lunega-dev/${name}`,
+  name: `@lunega/${name}`,
   version: '0.0.1',
   type: 'module',
   exports: {
@@ -37,14 +37,14 @@ write('package.json', {
     test: 'vitest run',
     prepublishOnly: 'tsc -b',
   },
-  dependencies: Object.fromEntries(deps.map((d) => [`@lunega-dev/${d}`, '*'])),
+  dependencies: Object.fromEntries(deps.map((d) => [`@lunega/${d}`, '*'])),
   repository: {
     type: 'git',
     url: 'https://github.com/lunega-dev/lunega-app.git',
     directory: `js/modules/${name}`,
   },
   publishConfig: {
-    registry: 'https://npm.pkg.github.com',
+    access: 'public',
   },
 });
 
