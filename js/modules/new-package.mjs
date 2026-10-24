@@ -22,7 +22,7 @@ const write = (file, content) => {
 
 write('package.json', {
   name: `@lunega-dev/${name}`,
-  version: '0.0.0',
+  version: '0.0.1',
   type: 'module',
   exports: {
     '.': {
@@ -38,6 +38,11 @@ write('package.json', {
     prepublishOnly: 'tsc -b',
   },
   dependencies: Object.fromEntries(deps.map((d) => [`@lunega-dev/${d}`, '*'])),
+  repository: {
+    type: 'git',
+    url: 'https://github.com/lunega-dev/lunega-app.git',
+    directory: `js/modules/${name}`,
+  },
   publishConfig: {
     registry: 'https://npm.pkg.github.com',
   },

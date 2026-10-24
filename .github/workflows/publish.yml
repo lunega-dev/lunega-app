@@ -1,0 +1,53 @@
+# Publishes every @lunega-dev/* package whose version isn't on GitHub Packages
+# yet. Bump a package's version to release it; everything else is skipped.
+name: publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - js/modules/**
+      - .github/workflows/publish.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: js/modules
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          scope: '@lunega-dev'
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+      - name: Publish new versions
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for dir in $(node -p "require('./package.json').workspaces.join(' ')"); do
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already published"
+            else
+              npm publish --workspace "$dir"
+            fi
+          done
