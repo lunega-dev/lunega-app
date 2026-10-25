@@ -109,6 +109,25 @@ describe('handler', () => {
     expect(await res.text()).toBe('/anything');
   });
 
+  test('a fetch handler returning nothing falls through to 404.html', async () => {
+    const get = await serve(
+      app({
+        'package.json': pkg({ static: 'public', handler: 'server.js' }),
+        'public/404.html': 'custom 404',
+        'server.js': `export default {
+          fetch(request) {
+            if (new URL(request.url).pathname === '/api') return new Response('api');
+          },
+        };`,
+      }),
+    );
+    expect(await (await get('/api')).text()).toBe('api');
+    const res = await get('/nope');
+    expect(res.status).toBe(404);
+    expect(res.headers.get('content-type')).toMatch(/text\/html/);
+    expect(await res.text()).toBe('custom 404');
+  });
+
   test('a throwing handler gives a 500', async () => {
     const get = await serve(
       app({

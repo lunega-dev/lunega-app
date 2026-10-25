@@ -35,7 +35,6 @@ export async function start({
   secrets?.loadFileSecrets();
 
   const config = await loadConfig(root);
-  const handler = config.handler ? await loadHandler(root, config.handler) : undefined;
 
   const analyticsModule = await importOptional<AnalyticsModule>(root, '@lunega/analytics');
   if (config.analytics && !analyticsModule) {
@@ -55,6 +54,14 @@ export async function start({
   const notFoundPath = staticDir ? join(staticDir, '404.html') : undefined;
   const notFoundHtml = notFoundPath && existsSync(notFoundPath) ? readFileSync(notFoundPath, 'utf8') : undefined;
   const notFoundPage = notFoundHtml !== undefined && inject ? inject(notFoundHtml) : notFoundHtml;
+
+  const handler = config.handler
+    ? await loadHandler(root, config.handler, () =>
+        notFoundPage !== undefined
+          ? new Response(notFoundPage, { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+          : new Response('Not Found', { status: 404 }),
+      )
+    : undefined;
 
   const notFound = (res: ServerResponse) => {
     res.statusCode = 404;
