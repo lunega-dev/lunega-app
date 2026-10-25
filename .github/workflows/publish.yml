@@ -53,9 +53,9 @@ jobs:
               echo "$name@$version is already published"
             elif ! out=$(npm publish --workspace "$dir" 2>&1); then
               echo "$out"
-              # Staged by an earlier run: it goes live once approved on npmjs.com.
+              # Staged by an earlier run: npm validates it before it goes live.
               grep -q 'previously staged version' <<< "$out" || exit 1
-              echo "::notice::$name@$version is staged, waiting for approval on npmjs.com"
+              echo "::notice::$name@$version is staged, npm is still validating it"
             else
               echo "$out"
             fi
