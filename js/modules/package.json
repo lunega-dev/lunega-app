@@ -5,7 +5,8 @@
   "workspaces": [
     "secrets",
     "paths",
-    "app"
+    "app",
+    "analytics"
   ],
   "scripts": {
     "build": "tsc -b",

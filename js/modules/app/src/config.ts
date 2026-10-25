@@ -7,6 +7,9 @@ export interface Config {
   static?: string;
   /** Module whose default export handles what no file matched. */
   handler?: string;
+  /** For @lunega/analytics: `false` turns it off, `inject: false` keeps the
+   * tracker out of the HTML (see AnalyticsOptions there). */
+  analytics?: false | { websiteId?: string; inject?: boolean; collectUrl?: string };
 }
 
 const FILES = ['lunega.config.js', 'lunega.config.mjs'];

@@ -1,0 +1,29 @@
+{
+  "name": "@lunega/analytics",
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "prepublishOnly": "tsc -b"
+  },
+  "dependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lunega-dev/lunega-app.git",
+    "directory": "js/modules/analytics"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

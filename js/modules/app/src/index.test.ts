@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import fs from 'node:fs';
-import type { Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -159,5 +159,68 @@ describe('secrets', () => {
     } finally {
       delete process.env.API_KEY_FILE;
     }
+  });
+});
+
+describe('analytics', () => {
+  const ID = '6832f7b0-33ba-4a73-b507-d15b1433b181';
+  const tag = `<script defer src="/__a/script.js" data-website-id="${ID}"></script>`;
+  let umami: Server;
+  let collectUrl: string;
+  let env: string | undefined;
+
+  beforeEach(async () => {
+    umami = createServer((req, res) => res.end(req.url === '/script.js' ? 'tracker' : '{}'));
+    await new Promise<void>((resolve) => umami.listen(0, resolve));
+    collectUrl = `http://127.0.0.1:${portOf(umami)}`;
+    env = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+  });
+
+  afterEach(() => {
+    umami.close();
+    process.env.NODE_ENV = env;
+  });
+
+  // A site with @lunega/analytics installed.
+  function site(analytics: object | false) {
+    const root = app({
+      'package.json': pkg({ static: 'dist', analytics: analytics && { ...analytics, collectUrl } }),
+      'dist/index.html': '<html><head></head><body>home</body></html>',
+      'dist/docs/index.html': '<head></head>docs',
+      'dist/style.css': 'body{}',
+      'dist/404.html': '<head></head>missing',
+    });
+    const analyticsDir = fileURLToPath(new URL('../../analytics', import.meta.url));
+    fs.mkdirSync(path.join(root, 'node_modules/@lunega'), { recursive: true });
+    fs.symlinkSync(analyticsDir, path.join(root, 'node_modules/@lunega/analytics'));
+    return root;
+  }
+
+  test('the tracker goes in every page, the rest is untouched', async () => {
+    const get = await serve(site({ websiteId: ID }));
+    expect(await (await get('/')).text()).toBe(`<html><head>${tag}</head><body>home</body></html>`);
+    expect(await (await get('/docs/')).text()).toBe(`<head>${tag}</head>docs`);
+    expect(await (await get('/style.css')).text()).toBe('body{}');
+    const missing = await get('/nope');
+    expect(missing.status).toBe(404);
+    expect(await missing.text()).toBe(`<head>${tag}</head>missing`);
+  });
+
+  test('/__a/ is proxied to Umami', async () => {
+    const get = await serve(site({ websiteId: ID }));
+    expect(await (await get('/__a/script.js')).text()).toBe('tracker');
+  });
+
+  test('inject: false leaves the pages alone but keeps the proxy', async () => {
+    const get = await serve(site({ websiteId: ID, inject: false }));
+    expect(await (await get('/')).text()).toBe('<html><head></head><body>home</body></html>');
+    expect(await (await get('/__a/script.js')).text()).toBe('tracker');
+  });
+
+  test('analytics: false turns it all off', async () => {
+    const get = await serve(site(false));
+    expect(await (await get('/')).text()).toBe('<html><head></head><body>home</body></html>');
+    expect((await get('/__a/script.js')).status).toBe(404);
   });
 });

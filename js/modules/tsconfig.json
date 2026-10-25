@@ -9,6 +9,9 @@
     },
     {
       "path": "./app"
+    },
+    {
+      "path": "./analytics"
     }
   ]
 }
