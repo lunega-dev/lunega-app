@@ -47,7 +47,9 @@ jobs:
           for dir in $(node -p "require('./package.json').workspaces.join(' ')"); do
             name=$(node -p "require('./$dir/package.json').name")
             version=$(node -p "require('./$dir/package.json').version")
-            if npm view "$name@$version" version >/dev/null 2>&1; then
+            # The version URL, not npm view: the package document lags behind
+            # a fresh publish, and publishing over a version is a 403.
+            if curl -sf -o /dev/null "https://registry.npmjs.org/$name/$version"; then
               echo "$name@$version is already published"
             else
               npm publish --workspace "$dir"
