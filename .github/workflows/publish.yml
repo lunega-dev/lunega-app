@@ -51,7 +51,12 @@ jobs:
             # a fresh publish, and publishing over a version is a 403.
             if curl -sf -o /dev/null "https://registry.npmjs.org/$name/$version"; then
               echo "$name@$version is already published"
+            elif ! out=$(npm publish --workspace "$dir" 2>&1); then
+              echo "$out"
+              # Staged by an earlier run: it goes live once approved on npmjs.com.
+              grep -q 'previously staged version' <<< "$out" || exit 1
+              echo "::notice::$name@$version is staged, waiting for approval on npmjs.com"
             else
-              npm publish --workspace "$dir"
+              echo "$out"
             fi
           done
