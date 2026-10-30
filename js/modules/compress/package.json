@@ -1,0 +1,34 @@
+{
+  "name": "@lunega/compress",
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "prepublishOnly": "tsc -b"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lunega-dev/lunega-app.git",
+    "directory": "js/modules/compress"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/compression": "^1.8.1"
+  },
+  "dependencies": {
+    "compression": "^1.8.2"
+  }
+}

@@ -6,7 +6,8 @@
     "secrets",
     "paths",
     "app",
-    "analytics"
+    "analytics",
+    "compress"
   ],
   "scripts": {
     "build": "tsc -b",

@@ -1,12 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { availableParallelism } from 'node:os';
 import { dirname, join } from 'node:path';
 import { root as appRoot, temp } from '@lunega/paths';
 import sirv from 'sirv';
-import { compressResponses, isCompressible, precompress, type Variants } from './compress.js';
 import { loadConfig, type Config } from './config.js';
 import { loadHandler, type Listener } from './handler.js';
 import { importOptional } from './optional.js';
@@ -18,6 +15,10 @@ export type { ExecutionContext, FetchHandler } from './handler.js';
 interface AnalyticsModule {
   setup(options: Config['analytics']): Analytics | undefined;
   inject(html: string): string;
+}
+// Likewise @lunega/compress.
+interface CompressModule {
+  compress(): Middleware;
 }
 interface Analytics {
   readonly inject: boolean;
@@ -45,20 +46,21 @@ export async function start({
   }
   const analytics = analyticsModule?.setup(config.analytics);
   const inject = analytics?.inject ? analyticsModule?.inject : undefined;
-  const compress = config.compress !== false;
+
+  const compressModule = await importOptional<CompressModule>(root, '@lunega/compress');
+  if (config.compress && !compressModule) {
+    console.warn('compress: configured, but @lunega/compress is not installed');
+  }
+  const compress = config.compress !== false ? compressModule?.compress() : undefined;
 
   // Pages-style routing: /about -> about.html, /docs/ -> docs/index.html.
   const staticDir = config.static ? join(root, config.static) : undefined;
-  const serveDir = (dir: string, encoded = false) =>
-    sirv(dir, { extensions: ['html'], etag: true, gzip: encoded, brotli: encoded });
+  const serveDir = (dir: string) => sirv(dir, { extensions: ['html'], etag: true });
   const original = staticDir ? serveDir(staticDir) : undefined;
-  // Pages with the tracker injected and text files with their .br and .gz are
-  // served from prepared copies; everything else falls through to the originals.
-  const prepared =
-    staticDir && (inject || compress)
-      ? serveDir(await preparedCopies(staticDir, inject, compress), compress)
-      : undefined;
-  const files = prepared && original ? chain(prepared, original) : original;
+  // With the tracker injected, the HTML pages are served from rewritten copies
+  // and everything else falls through to the original files.
+  const pages = staticDir && inject ? serveDir(injectedCopies(staticDir, inject)) : undefined;
+  const files = pages && original ? chain(pages, original) : original;
   const notFoundPath = staticDir ? join(staticDir, '404.html') : undefined;
   const notFoundHtml = notFoundPath && existsSync(notFoundPath) ? readFileSync(notFoundPath, 'utf8') : undefined;
   const notFoundPage = notFoundHtml !== undefined && inject ? inject(notFoundHtml) : notFoundHtml;
@@ -101,7 +103,7 @@ export async function start({
       if (files) files(req, res, next);
       else next();
     };
-    if (compress) compressResponses(req, res, serve);
+    if (compress) compress(req, res, serve);
     else serve();
   });
 
@@ -119,40 +121,16 @@ const chain =
   (req, res, next) =>
     first(req, res, () => second(req, res, next));
 
-// Copies of the files under dir that are served differently, in a fresh dir
-// under temp: .html files rewritten, and text files with their .br and .gz
-// next to them (sirv picks those by Accept-Encoding).
-async function preparedCopies(
-  dir: string,
-  rewrite: ((html: string) => string) | undefined,
-  compress: boolean,
-): Promise<string> {
+// Copies of the .html files under dir, rewritten, in a fresh dir under temp.
+function injectedCopies(dir: string, rewrite: (html: string) => string): string {
   const out = mkdtempSync(join(temp, 'static-'));
-  const files = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((file) =>
-    statSync(join(dir, file)).isFile(),
-  );
-  await forEachLimit(files, availableParallelism(), async (file) => {
-    const rewritten = rewrite !== undefined && file.endsWith('.html');
-    if (!rewritten && !(compress && isCompressible(file))) return;
-    let data = await readFile(join(dir, file));
-    if (rewritten) data = Buffer.from(rewrite(data.toString('utf8')));
-    const variants: Variants = compress && isCompressible(file) ? await precompress(data) : {};
-    if (!rewritten && !variants.br && !variants.gz) return;
+  for (const file of readdirSync(dir, { recursive: true, encoding: 'utf8' })) {
+    if (!file.endsWith('.html')) continue;
     const target = join(out, file);
     mkdirSync(dirname(target), { recursive: true });
-    await writeFile(target, data);
-    if (variants.br) await writeFile(`${target}.br`, variants.br);
-    if (variants.gz) await writeFile(`${target}.gz`, variants.gz);
-  });
+    writeFileSync(target, rewrite(readFileSync(join(dir, file), 'utf8')));
+  }
   return out;
-}
-
-async function forEachLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
-  let i = 0;
-  const worker = async () => {
-    while (i < items.length) await fn(items[i++]!);
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
 export function portOf(server: Server): number {

@@ -7,8 +7,7 @@ export interface Config {
   static?: string;
   /** Module whose default export handles what no file matched. */
   handler?: string;
-  /** gzip/brotli for responses; on unless `false`. Static text files are
-   * compressed once at start, everything else as it's sent. */
+  /** For @lunega/compress: `false` turns it off. */
   compress?: boolean;
   /** For @lunega/analytics: `false` turns it off, `inject: false` keeps the
    * tracker out of the HTML (see AnalyticsOptions there). */
