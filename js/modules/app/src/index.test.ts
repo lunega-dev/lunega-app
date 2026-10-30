@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import fs from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer, request, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { portOf, start } from './index.js';
 
 const servers: Server[] = [];
@@ -30,6 +31,23 @@ async function serve(root: string) {
   servers.push(server);
   const base = `http://127.0.0.1:${portOf(server)}`;
   return (p: string, init?: RequestInit) => fetch(base + p, init);
+}
+
+// The response as sent, not decoded the way fetch does it.
+async function raw(root: string, p: string, acceptEncoding: string) {
+  const server = await start({ root, port: 0 });
+  servers.push(server);
+  return new Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: Buffer }>(
+    (resolve, reject) => {
+      const req = request({ port: portOf(server), path: p, headers: { 'accept-encoding': acceptEncoding } }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode!, headers: res.headers, body: Buffer.concat(chunks) }));
+      });
+      req.on('error', reject);
+      req.end();
+    },
+  );
 }
 
 const pkg = (lunega: object) => JSON.stringify({ name: 'site', lunega });
@@ -241,5 +259,79 @@ describe('analytics', () => {
     const get = await serve(site(false));
     expect(await (await get('/')).text()).toBe('<html><head></head><body>home</body></html>');
     expect((await get('/__a/script.js')).status).toBe(404);
+  });
+});
+
+describe('compression', () => {
+  const page = `<html><body>${'hello lunega '.repeat(200)}</body></html>`;
+  const css = 'body { color: red; }\n'.repeat(100);
+  const site = (lunega: object = {}) =>
+    app({
+      'package.json': pkg({ static: 'dist', handler: 'server.js', ...lunega }),
+      'dist/index.html': page,
+      'dist/docs/index.html': page,
+      'dist/style.css': css,
+      'dist/small.css': 'body{}',
+      'dist/image.png': 'x'.repeat(4096),
+      'dist/404.html': page,
+      'server.js': `export default {
+        fetch(request) {
+          const { pathname } = new URL(request.url);
+          if (pathname === '/api') return Response.json({ items: Array(200).fill('item') });
+          if (pathname === '/events') {
+            return new Response('data: ' + 'x'.repeat(2000) + '\\n\\n', { headers: { 'Content-Type': 'text/event-stream' } });
+          }
+        },
+      };`,
+    });
+
+  test('static text is brotli, gzip or plain by Accept-Encoding', async () => {
+    const root = site();
+    const br = await raw(root, '/', 'gzip, deflate, br');
+    expect(br.headers['content-encoding']).toBe('br');
+    expect(br.headers.vary).toBe('Accept-Encoding');
+    expect(br.headers['content-type']).toMatch(/text\/html/);
+    expect(brotliDecompressSync(br.body).toString()).toBe(page);
+
+    const gz = await raw(root, '/style.css', 'gzip');
+    expect(gz.headers['content-encoding']).toBe('gzip');
+    expect(gz.headers['content-type']).toMatch(/text\/css/);
+    expect(gunzipSync(gz.body).toString()).toBe(css);
+
+    const plain = await raw(root, '/docs/', 'identity');
+    expect(plain.headers['content-encoding']).toBeUndefined();
+    expect(plain.body.toString()).toBe(page);
+  });
+
+  test('small files and images are sent as they are', async () => {
+    const root = site();
+    expect((await raw(root, '/small.css', 'br')).headers['content-encoding']).toBeUndefined();
+    const png = await raw(root, '/image.png', 'br');
+    expect(png.headers['content-encoding']).toBeUndefined();
+    expect(png.body.length).toBe(4096);
+  });
+
+  test('handler responses and the 404 page are compressed as sent', async () => {
+    const root = site();
+    const api = await raw(root, '/api', 'br');
+    expect(api.headers['content-encoding']).toBe('br');
+    expect(JSON.parse(brotliDecompressSync(api.body).toString()).items).toHaveLength(200);
+
+    const missing = await raw(root, '/nope', 'gzip');
+    expect(missing.status).toBe(404);
+    expect(missing.headers['content-encoding']).toBe('gzip');
+    expect(gunzipSync(missing.body).toString()).toBe(page);
+  });
+
+  test('server-sent events are not compressed', async () => {
+    const events = await raw(site(), '/events', 'br');
+    expect(events.headers['content-encoding']).toBeUndefined();
+  });
+
+  test('compress: false turns it off', async () => {
+    const root = site({ compress: false });
+    for (const p of ['/', '/style.css', '/api', '/nope']) {
+      expect((await raw(root, p, 'br, gzip')).headers['content-encoding']).toBeUndefined();
+    }
   });
 });
