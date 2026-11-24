@@ -12,6 +12,12 @@
     },
     {
       "path": "./analytics"
+    },
+    {
+      "path": "./db"
+    },
+    {
+      "path": "./kv"
     }
   ]
 }

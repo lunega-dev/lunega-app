@@ -6,7 +6,9 @@
     "secrets",
     "paths",
     "app",
-    "analytics"
+    "analytics",
+    "db",
+    "kv"
   ],
   "scripts": {
     "build": "tsc -b",
