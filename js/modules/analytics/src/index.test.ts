@@ -69,6 +69,19 @@ describe('setup', () => {
     expect(setup({}, prod)).toBeUndefined();
   });
 
+  test('websiteId falls back to LUNEGA_ANALYTICS_WEBSITE_ID', () => {
+    const env = { ...prod, LUNEGA_ANALYTICS_WEBSITE_ID: ID };
+    expect(setup(undefined, env)?.websiteId).toBe(ID);
+    expect(setup({ inject: false }, env)).toMatchObject({ websiteId: ID, inject: false });
+    expect(setup({ websiteId: 'own' }, env)?.websiteId).toBe('own');
+    expect(setup(undefined, { ...prod, LUNEGA_ANALYTICS_WEBSITE_ID: '' })).toBeUndefined();
+  });
+
+  test('the env var does not turn it on when it is off', () => {
+    expect(setup(false, { ...prod, LUNEGA_ANALYTICS_WEBSITE_ID: ID })).toBeUndefined();
+    expect(setup(undefined, { NODE_ENV: 'development', LUNEGA_ANALYTICS_WEBSITE_ID: ID })).toBeUndefined();
+  });
+
   test('injects by default', () => {
     expect(setup({ websiteId: ID }, prod)?.inject).toBe(true);
     expect(setup({ websiteId: ID, inject: false }, prod)?.inject).toBe(false);

@@ -5,7 +5,8 @@ import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:
 // events. Off unless NODE_ENV=production, so local runs record nothing.
 
 export interface AnalyticsOptions {
-  /** The site's website id in Umami. Without one, analytics stays off. */
+  /** The site's website id in Umami; LUNEGA_ANALYTICS_WEBSITE_ID when unset.
+   * Without either, analytics stays off. */
   websiteId?: string;
   /** Add the tracker to every HTML page served from `static` (default true). */
   inject?: boolean;
@@ -21,6 +22,7 @@ export interface Analytics {
 }
 
 export const PREFIX = '/__a';
+export const WEBSITE_ID_ENV = 'LUNEGA_ANALYTICS_WEBSITE_ID';
 const DEFAULT_COLLECT_URL = 'https://collect.analytics.lunega.io';
 const SCRIPT_TTL = 60 * 60 * 1000;
 const MAX_BODY = 64 * 1024;
@@ -36,15 +38,17 @@ export function setup(
 ): Analytics | undefined {
   active = undefined;
   if (options === false || env.NODE_ENV !== 'production') return undefined;
-  if (!options?.websiteId) {
-    console.warn('analytics: no websiteId in the config, not tracking');
+  // The config's own id wins; launcher sets the env var for sites it created.
+  const websiteId = options?.websiteId || env[WEBSITE_ID_ENV];
+  if (!websiteId) {
+    console.warn(`analytics: no websiteId in the config or ${WEBSITE_ID_ENV}, not tracking`);
     return undefined;
   }
-  const collectUrl = (options.collectUrl ?? DEFAULT_COLLECT_URL).replace(/\/$/, '');
+  const collectUrl = (options?.collectUrl ?? DEFAULT_COLLECT_URL).replace(/\/$/, '');
   const script = scriptCache(collectUrl);
   active = {
-    websiteId: options.websiteId,
-    inject: options.inject ?? true,
+    websiteId,
+    inject: options?.inject ?? true,
     collectUrl,
     handle(req, res) {
       const path = (req.url ?? '').split('?')[0] ?? '';

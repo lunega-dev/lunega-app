@@ -237,6 +237,16 @@ describe('analytics', () => {
     expect(await (await get('/__a/script.js')).text()).toBe('tracker');
   });
 
+  test('the website id can come from LUNEGA_ANALYTICS_WEBSITE_ID', async () => {
+    process.env.LUNEGA_ANALYTICS_WEBSITE_ID = ID;
+    try {
+      const get = await serve(site({}));
+      expect(await (await get('/docs/')).text()).toBe(`<head>${tag}</head>docs`);
+    } finally {
+      delete process.env.LUNEGA_ANALYTICS_WEBSITE_ID;
+    }
+  });
+
   test('analytics: false turns it all off', async () => {
     const get = await serve(site(false));
     expect(await (await get('/')).text()).toBe('<html><head></head><body>home</body></html>');
