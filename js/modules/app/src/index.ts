@@ -8,6 +8,7 @@ import { openBindings } from './bindings.js';
 import { loadConfig, type Config } from './config.js';
 import { loadHandler, type Listener } from './handler.js';
 import { importOptional } from './optional.js';
+import { checkSecrets } from './secrets.js';
 
 export type { Config } from './config.js';
 export type { Env, ExecutionContext, FetchHandler } from './handler.js';
@@ -36,6 +37,8 @@ export async function start({
   secrets?.loadFileSecrets();
 
   const config = await loadConfig(root);
+  // Before anything is opened: an app without its secrets doesn't start.
+  checkSecrets(config, secrets !== undefined);
   const bindings = await openBindings(root, config);
   try {
     const server = await serve(root, port, config, { ...process.env, ...bindings.objects });

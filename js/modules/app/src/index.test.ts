@@ -179,6 +179,78 @@ describe('secrets', () => {
       delete process.env.API_KEY_FILE;
     }
   });
+
+  // A site that declares API_KEY, with @lunega/secrets installed or not.
+  function site(installed: boolean, lunega: object = {}) {
+    const root = app({
+      'package.json': pkg({ handler: 'server.js', secrets: ['API_KEY'], ...lunega }),
+      'server.js': handler,
+      'key': 's3cret\n',
+    });
+    if (installed) {
+      const secrets = fileURLToPath(new URL('../../secrets', import.meta.url));
+      fs.mkdirSync(path.join(root, 'node_modules/@lunega'), { recursive: true });
+      fs.symlinkSync(secrets, path.join(root, 'node_modules/@lunega/secrets'));
+    }
+    return root;
+  }
+
+  test('a declared one comes from its file, as under launcher', async () => {
+    const root = site(true);
+    process.env.API_KEY_FILE = path.join(root, 'key');
+    try {
+      const get = await serve(root);
+      expect(await (await get('/')).text()).toBe('s3cret');
+    } finally {
+      delete process.env.API_KEY_FILE;
+      delete process.env.API_KEY;
+    }
+  });
+
+  test('or is a plain variable, without @lunega/secrets', async () => {
+    process.env.API_KEY = 'plain';
+    try {
+      const get = await serve(site(false));
+      expect(await (await get('/')).text()).toBe('plain');
+    } finally {
+      delete process.env.API_KEY;
+    }
+  });
+
+  test('a declared one without a value is refused at start, before the handler is imported', async () => {
+    const root = site(true, { secrets: ['API_KEY', 'OTHER_KEY'] });
+    fs.writeFileSync(path.join(root, 'server.js'), `throw new Error('imported');`);
+    await expect(start({ root, port: 0 })).rejects.toThrow('secrets: no value for API_KEY, OTHER_KEY');
+  });
+
+  test('a file without @lunega/secrets is refused, and says what is needed', async () => {
+    const root = site(false);
+    process.env.API_KEY_FILE = path.join(root, 'key');
+    try {
+      await expect(start({ root, port: 0 })).rejects.toThrow(
+        'secrets: no value for API_KEY (API_KEY_FILE set, which needs @lunega/secrets, and it is not installed)',
+      );
+    } finally {
+      delete process.env.API_KEY_FILE;
+    }
+  });
+
+  test('an invalid name is refused at start', async () => {
+    await expect(start({ root: site(false, { secrets: ['api_key'] }), port: 0 })).rejects.toThrow(
+      'secrets: invalid name "api_key"',
+    );
+  });
+
+  test('a binding with the name of a secret is refused, and nothing is opened', async () => {
+    const root = site(false, { bindings: { API_KEY: { type: 'kv' } } });
+    process.env.API_KEY = 'plain';
+    try {
+      await expect(start({ root, port: 0 })).rejects.toThrow('secrets: API_KEY is also a binding');
+      expect(fs.existsSync(path.join(root, 'data_secure'))).toBe(false);
+    } finally {
+      delete process.env.API_KEY;
+    }
+  });
 });
 
 describe('bindings', () => {

@@ -18,6 +18,9 @@ export interface Config {
   /** Objects for a Workers-style handler's env, by name: `db` is @lunega/db,
    * `kv` is @lunega/kv. Their files are under `dataSecure`. */
   bindings?: Record<string, { type: 'db' | 'kv' }>;
+  /** Names of the env vars the app can't run without. Launcher gives each
+   * as a file (`NAME_FILE`), which @lunega/secrets turns into `NAME`. */
+  secrets?: string[];
 }
 
 const FILES = ['lunega.config.js', 'lunega.config.mjs'];
