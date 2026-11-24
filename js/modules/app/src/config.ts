@@ -10,6 +10,14 @@ export interface Config {
   /** For @lunega/analytics: `false` turns it off, `inject: false` keeps the
    * tracker out of the HTML (see AnalyticsOptions there). */
   analytics?: false | { websiteId?: string; inject?: boolean; collectUrl?: string };
+  /** The app writes to `data` of @lunega/paths. Launcher mounts the folder
+   * only when package.json's "lunega" block says so. */
+  data?: boolean;
+  /** The same for `dataSecure`. */
+  dataSecure?: boolean;
+  /** Objects for a Workers-style handler's env, by name: `db` is @lunega/db,
+   * `kv` is @lunega/kv. Their files are under `dataSecure`. */
+  bindings?: Record<string, { type: 'db' | 'kv' }>;
 }
 
 const FILES = ['lunega.config.js', 'lunega.config.mjs'];

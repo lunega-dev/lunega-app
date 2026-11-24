@@ -181,6 +181,126 @@ describe('secrets', () => {
   });
 });
 
+describe('bindings', () => {
+  const handler = `export default {
+    async fetch(request, env) {
+      globalThis.lunegaTestEnv = env;
+      await env.DB.exec('CREATE TABLE IF NOT EXISTS hits (path TEXT)');
+      const path = new URL(request.url).pathname;
+      await env.DB.prepare('INSERT INTO hits (path) VALUES (?)').bind(path).run();
+      await env.CACHE.put('last', path);
+      return Response.json({
+        hits: await env.DB.prepare('SELECT count(*) AS n FROM hits').first('n'),
+        last: await env.CACHE.get('last'),
+        value: env.LUNEGA_TEST_VALUE,
+      });
+    },
+  };`;
+
+  // A site with the given @lunega packages installed.
+  function site(lunega: object, packages = ['db', 'kv']) {
+    const root = app({ 'package.json': pkg({ handler: 'server.js', ...lunega }), 'server.js': handler });
+    fs.mkdirSync(path.join(root, 'node_modules/@lunega'), { recursive: true });
+    for (const name of packages) {
+      const dir = fileURLToPath(new URL(`../../${name}`, import.meta.url));
+      fs.symlinkSync(dir, path.join(root, `node_modules/@lunega/${name}`));
+    }
+    return root;
+  }
+  const both = { bindings: { DB: { type: 'db' }, CACHE: { type: 'kv' } } };
+
+  test('a db and a kv in the env, next to the variables', async () => {
+    process.env.LUNEGA_TEST_VALUE = 'from-env';
+    const root = site(both);
+    const get = await serve(root);
+    expect(await (await get('/a')).json()).toEqual({ hits: 1, last: '/a', value: 'from-env' });
+    expect(await (await get('/b')).json()).toEqual({ hits: 2, last: '/b', value: 'from-env' });
+    expect(fs.existsSync(path.join(root, 'data_secure/db/DB.sqlite'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'data_secure/kv/CACHE.sqlite'))).toBe(true);
+  });
+
+  test('the data is still there after a restart, and closed with the server', async () => {
+    const root = site(both);
+    const first = await start({ root, port: 0 });
+    await fetch(`http://127.0.0.1:${portOf(first)}/a`);
+    const { DB } = (globalThis as unknown as { lunegaTestEnv: { DB: { exec(sql: string): Promise<unknown> } } })
+      .lunegaTestEnv;
+    await new Promise((resolve) => first.close(resolve));
+    await expect(DB.exec('SELECT 1')).rejects.toThrow();
+    const get = await serve(root);
+    expect(await (await get('/b')).json()).toMatchObject({ hits: 2, last: '/b' });
+  });
+
+  test('a binding whose package is not installed is refused at start', async () => {
+    await expect(start({ root: site(both, ['db']), port: 0 })).rejects.toThrow(
+      'bindings: CACHE needs @lunega/kv, which is not installed',
+    );
+  });
+
+  test('a name that is not an env var name is refused', async () => {
+    for (const name of ['db', 'My-DB', '1DB', '']) {
+      const root = site({ bindings: { [name]: { type: 'db' } } });
+      await expect(start({ root, port: 0 })).rejects.toThrow('bindings: invalid name');
+    }
+  });
+
+  test('a name that an environment variable has is refused', async () => {
+    process.env.LUNEGA_TEST_TAKEN = '';
+    try {
+      const root = site({ bindings: { LUNEGA_TEST_TAKEN: { type: 'kv' } } });
+      await expect(start({ root, port: 0 })).rejects.toThrow(
+        'bindings: LUNEGA_TEST_TAKEN is already an environment variable',
+      );
+    } finally {
+      delete process.env.LUNEGA_TEST_TAKEN;
+    }
+  });
+
+  test('an unknown type is refused', async () => {
+    for (const binding of [{ type: 'r2' }, { type: 'constructor' }, {}, null]) {
+      const root = site({ bindings: { BUCKET: binding } });
+      await expect(start({ root, port: 0 })).rejects.toThrow('bindings: BUCKET has type');
+    }
+  });
+});
+
+describe('data folders', () => {
+  test('made when the config asks for them', async () => {
+    const root = app({ 'package.json': pkg({ data: true }) });
+    await serve(root);
+    expect(fs.existsSync(path.join(root, 'data'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'data_secure'))).toBe(false);
+
+    const secure = app({ 'package.json': pkg({ dataSecure: true }) });
+    await serve(secure);
+    expect(fs.existsSync(path.join(secure, 'data'))).toBe(false);
+    expect(fs.existsSync(path.join(secure, 'data_secure'))).toBe(true);
+  });
+
+  test('left alone otherwise', async () => {
+    const root = app({ 'package.json': pkg({}) });
+    await serve(root);
+    expect(fs.readdirSync(root)).toEqual(['package.json']);
+  });
+
+  // root writes anywhere, so there is nothing to refuse.
+  test.skipIf(process.getuid?.() === 0)('one that cannot be written to is refused at start', async () => {
+    const root = app({ 'package.json': pkg({ dataSecure: true }), 'data_secure/keep': '' });
+    fs.chmodSync(path.join(root, 'data_secure'), 0o500);
+    await expect(start({ root, port: 0 })).rejects.toThrow(
+      `dataSecure: ${path.join(root, 'data_secure')} is missing or not writable (EACCES)`,
+    );
+    fs.chmodSync(path.join(root, 'data_secure'), 0o700);
+  });
+
+  test('one that cannot be made is refused at start', async () => {
+    const root = app({ 'package.json': pkg({ data: true }), 'data': 'a file' });
+    await expect(start({ root, port: 0 })).rejects.toThrow(
+      `data: ${path.join(root, 'data')} is missing or not writable (EEXIST)`,
+    );
+  });
+});
+
 describe('analytics', () => {
   const ID = '6832f7b0-33ba-4a73-b507-d15b1433b181';
   const tag = `<script defer src="/__a/script.js" data-website-id="${ID}"></script>`;

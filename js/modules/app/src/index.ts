@@ -4,12 +4,13 @@ import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
 import { root as appRoot, temp } from '@lunega/paths';
 import sirv from 'sirv';
+import { openBindings } from './bindings.js';
 import { loadConfig, type Config } from './config.js';
 import { loadHandler, type Listener } from './handler.js';
 import { importOptional } from './optional.js';
 
 export type { Config } from './config.js';
-export type { ExecutionContext, FetchHandler } from './handler.js';
+export type { Env, ExecutionContext, FetchHandler } from './handler.js';
 
 // The part of @lunega/analytics this uses; it's optional, so no dependency.
 interface AnalyticsModule {
@@ -35,7 +36,18 @@ export async function start({
   secrets?.loadFileSecrets();
 
   const config = await loadConfig(root);
+  const bindings = await openBindings(root, config);
+  try {
+    const server = await serve(root, port, config, { ...process.env, ...bindings.objects });
+    server.once('close', bindings.close);
+    return server;
+  } catch (e) {
+    bindings.close();
+    throw e;
+  }
+}
 
+async function serve(root: string, port: number, config: Config, env: Record<string, unknown>): Promise<Server> {
   const analyticsModule = await importOptional<AnalyticsModule>(root, '@lunega/analytics');
   if (config.analytics && !analyticsModule) {
     console.warn('analytics: configured, but @lunega/analytics is not installed');
@@ -56,7 +68,7 @@ export async function start({
   const notFoundPage = notFoundHtml !== undefined && inject ? inject(notFoundHtml) : notFoundHtml;
 
   const handler = config.handler
-    ? await loadHandler(root, config.handler, () =>
+    ? await loadHandler(root, config.handler, env, () =>
         notFoundPage !== undefined
           ? new Response(notFoundPage, { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
           : new Response('Not Found', { status: 404 }),
