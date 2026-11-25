@@ -21,6 +21,11 @@ export interface Config {
   /** Names of the env vars the app can't run without. Launcher gives each
    * as a file (`NAME_FILE`), which @lunega/secrets turns into `NAME`. */
   secrets?: string[];
+  /** Folders of other GitHub repos that launcher puts into the build: `dir`
+   * of `repo` at `branch`, placed at `into` (relative to the app root).
+   * Read by launcher from package.json only; the runtime ignores it.
+   * `lunega fetch` does the same locally. */
+  sources?: Array<{ repo: string; branch: string; dir: string; into: string }>;
 }
 
 const FILES = ['lunega.config.js', 'lunega.config.mjs'];

@@ -1,6 +1,6 @@
 {
   "name": "@lunega/app",
-  "version": "0.0.6",
+  "version": "0.1.0",
   "type": "module",
   "exports": {
     ".": {
@@ -26,7 +26,8 @@
     "access": "public"
   },
   "bin": {
-    "lunega-app": "./dist/cli.js"
+    "lunega-app": "./dist/cli.js",
+    "lunega": "./dist/cli.js"
   },
   "repository": {
     "type": "git",
