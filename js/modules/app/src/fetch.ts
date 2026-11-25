@@ -1,7 +1,18 @@
 import { execFile } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { Config } from './config.js';
 
 type Source = NonNullable<Config['sources']>[number];
@@ -29,6 +40,14 @@ export function runGit(args: string[], cwd: string): Promise<void> {
   });
 }
 
+// Extra checks beside the copied rules: names git or the filesystem treats as
+// `.git` (case-insensitive and 8.3 forms, trailing dot or space).
+function unsafeSegment(seg: string): boolean {
+  if (seg === '.') return false;
+  const lower = seg.toLowerCase();
+  return lower === '.git' || lower === 'git~1' || seg.endsWith('.') || seg.endsWith(' ');
+}
+
 function readSources(root: string): Source[] {
   const file = join(root, 'package.json');
   if (!existsSync(file)) return [];
@@ -53,6 +72,9 @@ function check(s: unknown, i: number): Source {
   str(branch, 'branch', BRANCH);
   str(dir, 'dir', PATH);
   str(into, 'into', PATH);
+  for (const [name, value] of [['dir', dir], ['into', into]] as const) {
+    if ((value as string).split('/').some(unsafeSegment)) throw new Error(`${at}.${name}: invalid`);
+  }
   if (into === '.') throw new Error(`${at}.into: invalid`);
   return { repo, branch, dir, into } as Source;
 }
@@ -97,19 +119,62 @@ async function fetchOne(
     await git(['fetch', '-q', '--depth=1', '--filter=blob:none', 'origin', `refs/heads/${branch}`], tmp);
     await git(['checkout', '-q', 'FETCH_HEAD'], tmp);
 
-    const from = resolve(tmp, dir);
+    const realTmp = realpathSync(tmp);
+    const from = join(realTmp, dir);
     if (!existsSync(from) || !statSync(from).isDirectory()) {
       throw new Error(`${url}: no folder ${dir} on ${branch}`);
     }
-    const target = resolve(root, into);
-    if (!target.startsWith(resolve(root) + sep)) throw new Error(`into ${into}: outside the app`);
+    // A symlink in the checkout (dir or an ancestor) would copy what it points to.
+    const realFrom = realpathSync(from);
+    if (realFrom !== from || !inside(realTmp, realFrom)) throw new Error(`${dir}: is or passes a symlink`);
+    const target = checkTarget(root, into);
     const staged = `${target}.fetching`;
     rmSync(staged, { recursive: true, force: true });
     mkdirSync(dirname(target), { recursive: true });
-    cpSync(from, staged, { recursive: true, filter: (src) => !(dir === '.' && src === join(tmp, '.git')) });
+    cpSync(from, staged, {
+      recursive: true,
+      verbatimSymlinks: true,
+      filter: (src) => !(dir === '.' && src === join(from, '.git')),
+    });
     rmSync(target, { recursive: true, force: true });
     renameSync(staged, target);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+function inside(parent: string, path: string): boolean {
+  const rel = relative(parent, path);
+  return rel !== '..' && !rel.startsWith(`..${sep}`);
+}
+
+// Run right before each source's write: an earlier source may have planted a link.
+// Refuses a symlink anywhere between root and the target's parent, and a
+// parent that lies in root/.git (compared case-insensitively).
+function checkTarget(root: string, into: string): string {
+  const realRoot = realpathSync(root);
+  const target = join(realRoot, into);
+  let current = realRoot;
+  for (const part of dirname(into) === '.' ? [] : dirname(into).split('/')) {
+    current = join(current, part);
+    if (!existsSync(current) && !isLink(current)) break;
+    if (isLink(current)) throw new Error(`into ${into}: ${relative(realRoot, current)} is a symlink`);
+  }
+  if (existsSync(dirname(target))) {
+    const parent = realpathSync(dirname(target)).toLowerCase();
+    const git = join(realRoot, '.git').toLowerCase();
+    if (parent === git || parent.startsWith(git + sep) || join(parent, '').startsWith(git + sep)) {
+      throw new Error(`into ${into}: inside .git`);
+    }
+  }
+  if (target === realRoot || !inside(realRoot, target)) throw new Error(`into ${into}: outside the app`);
+  return target;
+}
+
+function isLink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
   }
 }

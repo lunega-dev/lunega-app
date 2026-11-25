@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -46,6 +46,18 @@ beforeAll(() => {
   base = mkdtempSync(join(tmpdir(), 'fetch-test-'));
   fixture('acme/content', 'main', { 'docs/a.md': 'A', 'docs/sub/b.md': 'B', 'other/c.md': 'C', 'root.txt': 'R' });
   fixture('acme/more', 'main', { 'x.txt': 'X' });
+  fixture('acme/plant', 'main', { 'docs/x.txt': 'X' });
+  // links: docs/rel -> a.md (relative), escape -> an absolute folder, docs2/up -> ../docs
+  fixture('acme/links', 'main', { 'docs/a.md': 'A', 'docs/sub/s.txt': 'S', 'other/o.txt': 'O' });
+  const w = mkdtempSync(join(base, 'links-'));
+  git(w, 'clone', '-q', join(base, 'acme/links.git'), '.');
+  symlinkSync('a.md', join(w, 'docs/rel'));
+  symlinkSync(tmpdir(), join(w, 'escape'));
+  symlinkSync('../other', join(w, 'docs/up'));
+  symlinkSync('.', join(w, 'loop'));
+  git(w, 'add', '-A');
+  git(w, 'commit', '-q', '-m', 'links');
+  git(w, 'push', '-q', 'origin', 'HEAD:main');
   fixture('-evil/-repo', '-dash', { '-dir/f.txt': 'F', 'keep.txt': 'K' });
 });
 
@@ -112,6 +124,77 @@ describe('fetchSources', () => {
     const root = app([{ repo: 'acme/content', branch: 'nope', dir: 'docs', into: 'content' }]);
     await expect(fetchSources(root, { urlFor })).rejects.toThrow();
     expect(existsSync(join(root, 'content'))).toBe(false);
+  });
+});
+
+describe('symlinks and case', () => {
+  const src = (over: Record<string, unknown>) => ({ repo: 'acme/content', branch: 'main', dir: 'docs', into: 'content', ...over });
+
+  test('a symlinked parent of into is refused and nothing outside root is touched', async () => {
+    const root = app([src({ into: 'content/docs' })]);
+    const outside = mkdtempSync(join(base, 'outside-'));
+    mkdirSync(join(outside, 'docs'));
+    writeFileSync(join(outside, 'docs/keep.txt'), 'k');
+    symlinkSync(outside, join(root, 'content'));
+    await expect(fetchSources(root, { urlFor })).rejects.toThrow('symlink');
+    expect(readFileSync(join(outside, 'docs/keep.txt'), 'utf8')).toBe('k');
+  });
+
+  test('a link planted by an earlier source is refused for the next one', async () => {
+    const root = app([
+      { repo: 'acme/links', branch: 'main', dir: '.', into: 'first' },
+      { repo: 'acme/content', branch: 'main', dir: 'docs', into: 'first/escape/docs' },
+    ]);
+    const before = readdirSync(tmpdir()).includes('docs');
+    await expect(fetchSources(root, { urlFor })).rejects.toThrow('symlink');
+    expect(existsSync(join(tmpdir(), 'docs'))).toBe(before);
+  });
+
+  test('a symlinked dir is refused', async () => {
+    const root = app([{ repo: 'acme/links', branch: 'main', dir: 'escape', into: 'out' }]);
+    await expect(fetchSources(root, { urlFor })).rejects.toThrow('symlink');
+    expect(existsSync(join(root, 'out'))).toBe(false);
+  });
+
+  test('a dir under a symlinked ancestor is refused', async () => {
+    const root = app([{ repo: 'acme/links', branch: 'main', dir: 'loop/loop', into: 'out' }]);
+    await expect(fetchSources(root, { urlFor })).rejects.toThrow('symlink');
+    expect(existsSync(join(root, 'out'))).toBe(false);
+  });
+
+  test('relative symlinks inside fetched content stay relative', async () => {
+    const root = app([{ repo: 'acme/links', branch: 'main', dir: 'docs', into: 'out' }]);
+    await fetchSources(root, { urlFor });
+    expect(lstatSync(join(root, 'out/rel')).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(root, 'out/rel'))).toBe('a.md');
+    expect(readlinkSync(join(root, 'out/up'))).toBe('../other');
+  });
+
+  test.each([
+    ['into .GIT/hooks', { into: '.GIT/hooks' }],
+    ['into x/.Git', { into: 'x/.Git' }],
+    ['dir .Git', { dir: '.Git' }],
+    ['dir a/.GIT/b', { dir: 'a/.GIT/b' }],
+    ['into ending in dot', { into: 'x/git.' }],
+    ['into ending in dot (segment)', { into: 'a./b' }],
+    ['dir ending in dot', { dir: 'docs.' }],
+    ['into ending in space', { into: 'x /y' }],
+    ['dir ending in space', { dir: 'docs ' }],
+    ['into git~1', { into: 'GIT~1/hooks' }],
+    ['dir git~1', { dir: 'git~1' }],
+  ])('%s throws before git runs', async (_n, over) => {
+    const calls: string[][] = [];
+    await expect(fetchSources(app([src(over)]), { urlFor, git: async (a) => void calls.push(a) })).rejects.toThrow();
+    expect(calls).toEqual([]);
+  });
+
+  test('a target whose parent resolves into root/.git is refused', async () => {
+    const root = app([src({ into: 'ok/x' })]);
+    mkdirSync(join(root, '.git/hooks'), { recursive: true });
+    // ok is a real folder here, so only the .git check could stop a link; use a link-free guard: ok -> .git is a symlink
+    symlinkSync(join(root, '.git'), join(root, 'ok'));
+    await expect(fetchSources(root, { urlFor })).rejects.toThrow();
+    expect(readdirSync(join(root, '.git'))).toEqual(['hooks']);
   });
 });
 
